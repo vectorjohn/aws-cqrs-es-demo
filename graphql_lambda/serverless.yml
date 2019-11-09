@@ -23,6 +23,7 @@ service: graphql-lambda
 provider:
   name: aws
   runtime: nodejs10.x
+  memorySize: 128
 
 plugins:
   - serverless-plugin-typescript
@@ -61,8 +62,8 @@ plugins:
 #    - exclude-me.js
 #    - exclude-me-dir/**
 package:
-  exclude:
-    - node_modules/**/*
+  # exclude:
+  #   - node_modules/**/*
   include:
     handler.ts
 
@@ -74,6 +75,7 @@ functions:
       - http:
           path: graphql
           method: post
+          cors: true
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
 #    Check the event documentation for details
