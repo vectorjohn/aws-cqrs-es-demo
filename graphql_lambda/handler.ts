@@ -112,7 +112,6 @@ const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
 const schema = buildSchema(`
   type Query {
-    hello: String
     rooms: [Room]
     roomById(id: String!): Room
   }
@@ -143,7 +142,6 @@ const schema = buildSchema(`
   }
 
   type Mutation {
-    doFoo(bar: Int!): Boolean
     createRoom(name: String!, description: String): String
     renameRoom(id: String!, name: String!): Boolean
     deleteRoom(id: String!): Boolean
@@ -156,15 +154,13 @@ let state = {
   bars: 0
 }
 const root = {
-  hello: () => `Hello world! (${state.bars})`,
   rooms: () => getRooms(),
   roomById: (args: any) => roomById(args.id),
   createRoom: (args: any) => createRoom(args.name, args.description),
   renameRoom: (args: {id: string, name: string}) => renameRoom(args.id, args.name),
   deleteRoom: (args: {id: string}) => deleteRoom(args.id),
   scheduleSession: (args: any) => scheduleSession(args.roomId, args.cron, args.stopAfter),
-  invite: (args: any) => invite(args.id, args.invitees),
-  doFoo: (args: any) => {console.log('args is ', args); state.bars += args.bar; return true;}
+  invite: (args: any) => invite(args.id, args.invitees)
 };
 
 const getRooms = () => promisify<QueryOutput>((callback) =>
