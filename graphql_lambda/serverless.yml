@@ -117,12 +117,19 @@ package:
     handler.ts
 
 functions:
-  graphql:
-    handler: handler.query
-
+  graphqlAction:
+    handler: handler.writeAPI
     events:
       - http:
-          path: graphql
+          path: graphql/action
+          method: post
+          cors: true
+
+  graphqlQuery:
+    handler: handler.readAPI
+    events:
+      - http:
+          path: graphql/query
           method: post
           cors: true
 #    The following are a few example events you can configure
