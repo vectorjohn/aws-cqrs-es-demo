@@ -8,6 +8,7 @@ export default buildSchema(`
 
   type Room {
     id: String
+    version: Int
     name: String
     nr_id: String
     description: String

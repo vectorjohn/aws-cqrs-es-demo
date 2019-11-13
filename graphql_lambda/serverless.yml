@@ -27,6 +27,10 @@ provider:
   environment:
     DYNAMODB_TABLE_AGGREGATES: ${self:service}-${self:provider.stage}-aggregates
     DYNAMODB_TABLE_EVENTS: ${self:service}-${self:provider.stage}-events
+    DYNAMODB_TABLE_CLASSCONNECT: ${self:service}-${self:provider.stage}-classconnect
+    NEW_EVENTS_QUEUE: !Ref NewEventsQueue
+  # iamManagedPolicies:
+  #   - AWSLambdaBasicExecutionRole
   iamRoleStatements:
     - Effect: Allow
       Action:
@@ -43,6 +47,25 @@ provider:
         - dynamodb:DeleteItem
         - dynamodb:Query
       Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE_EVENTS}"
+    - Effect: Allow
+      Action:
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+        - dynamodb:Query
+      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE_CLASSCONNECT}"
+
+    # SQS Same Account
+    # Required by dynamo stream handler
+    - Effect: Allow
+      Action:
+        - sqs:*
+      Resource:
+        # Sub style prevents circular reference
+        #- !Sub arn:aws:sqs:${opt:region, self:provider.region}:${AWS::AccountId}:*
+        # - arn:aws:sqs:us-east-1:205970018521:graphql-lambda-dev-NewEventsQueue-4RS8GUHUNC8Q.fifo
+        - !GetAtt NewEventsQueue.Arn
 
 resources:
   Resources:
@@ -72,7 +95,51 @@ resources:
           - AttributeName: version
             KeyType: RANGE
         TableName: ${self:provider.environment.DYNAMODB_TABLE_EVENTS}
+        # Emits events for NEW_IMAGE only (because we only insert new items)
+        StreamSpecification:
+          StreamViewType: NEW_IMAGE
 
+    # For demo purposes, pretend the view layer is a single dynamo DB table
+    # In reality it can be a nice relational table, Elasticsearch, Mongo, whatever.
+    # It should be optimized for what the read layer needs! That's part of the point.
+    ClassConnectTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        TableName: ${self:provider.environment.DYNAMODB_TABLE_CLASSCONNECT}
+
+    NewEventsQueue:
+      Type: AWS::SQS::Queue
+      # Properties:
+      #   # TODO: This probably doesn't NEED to be fifo, but it avoids having to
+      #   #       re-queue in case events are out of order for demo only.
+      #   ContentBasedDeduplication: true
+      #   FifoQueue: true
+
+    QueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref NewEventsQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                # the Fn::Join is a workaround for something something https://forum.serverless.com/t/getting-handle-accountid-in-serverless-config/946/13
+                # AWS: !Sub ${AWS::AccountId}
+                AWS:
+                  Fn::Join: ["", [{ Ref: "AWS::AccountId" }]]
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt NewEventsQueue.Arn
 
 plugins:
   - serverless-plugin-typescript
@@ -114,7 +181,8 @@ package:
   # exclude:
   #   - node_modules/**/*
   include:
-    handler.ts
+    - handler.ts
+    - dynamo-stream-to-sqs.ts
 
 functions:
   graphqlAction:
@@ -132,6 +200,27 @@ functions:
           path: graphql/query
           method: post
           cors: true
+
+  dynamoStreamToSQS:
+    handler: dynamo-stream-to-sqs.handler
+    description: 'Streams Dynamo EventStore Events to SQS FIFO queues'
+    events:
+      - stream:
+          type: dynamodb
+          startingPosition: LATEST
+          batchSize: 1 # TODO: Lambda Handler only looks at first Record
+          enabled: true
+          arn: !GetAtt EventsTable.StreamArn
+
+  eventProcessor:
+    handler: event-processor/handler.onMessage
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - NewEventsQueue
+              - Arn
+
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
 #    Check the event documentation for details
